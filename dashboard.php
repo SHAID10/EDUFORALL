@@ -46,6 +46,7 @@ $userId = $_SESSION['user_id'];
 
                 <?php if ($role === 'promoter'): ?>
                     <li><a href="#" data-tab="overview"><i class="fas fa-chart-bar"></i> <span>Apercu General</span></a></li>
+                    <li><a href="#" data-tab="users"><i class="fas fa-users-cog"></i> <span>Utilisateurs</span></a></li>
                 <?php endif; ?>
                 <li><a href="#" data-tab="messages"><i class="fas fa-envelope"></i> <span>Messagerie</span></a></li>
                 <li><a href="#" data-tab="calendar"><i class="fas fa-calendar-alt"></i> <span>Calendrier</span></a></li>
@@ -167,6 +168,47 @@ $userId = $_SESSION['user_id'];
                         <div id="promoter-overview-wrapper"></div>
                     </div>
                 </div>
+
+                <div id="view-users" class="tab-content">
+                    <div class="content-panel">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+                            <div>
+                                <h2 style="margin-bottom: 0;"><i class="fas fa-users"></i> Gestion des Utilisateurs</h2>
+                                <p style="color: var(--text-muted); font-size: 14px; margin-top: 4px;">Total: <strong id="users-total-count">0</strong> utilisateur(s)</p>
+                            </div>
+                            <button class="btn btn-orange" onclick="App.openAddUserModal()">
+                                <i class="fas fa-user-plus"></i> Ajouter un utilisateur
+                            </button>
+                        </div>
+
+                        <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <input type="text" id="users-search-input" class="form-control" placeholder="Rechercher par nom ou email..." oninput="App.filterUsers()">
+                            </div>
+                            <div style="min-width: 150px;">
+                                <select id="users-role-filter" class="form-control" onchange="App.filterUsers()">
+                                    <option value="">Tous les roles</option>
+                                    <option value="student">Etudiants</option>
+                                    <option value="teacher">Enseignants</option>
+                                    <option value="promoter">Promoteurs</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="users-list-wrapper">
+                            <p style="color: var(--text-muted); padding: 20px;">Chargement des utilisateurs...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="view-user-details" class="tab-content">
+                    <button class="btn btn-outline" onclick="App.switchTab('users')" style="margin-bottom: 20px;">
+                        <i class="fas fa-arrow-left"></i> Retour a la liste
+                    </button>
+                    <div class="content-panel" id="user-details-container">
+                        <p style="padding: 20px;">Chargement des details...</p>
+                    </div>
+                </div>
                 <?php endif; ?>
 
                 <div id="view-messages" class="tab-content">
@@ -212,6 +254,19 @@ $userId = $_SESSION['user_id'];
                 </div>
                 <button type="submit" class="btn btn-orange" style="width: 100%;"><i class="fas fa-paper-plane"></i> Envoyer le message</button>
             </form>
+        </div>
+    </div>
+
+    <div id="user-modal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <button class="modal-close" onclick="App.closeUserModal()">&times;</button>
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div style="width: 52px; height: 52px; border-radius: 14px; background: var(--accent-orange-light); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; font-size: 22px; color: var(--accent-orange);">
+                    <i class="fas fa-user-cog"></i>
+                </div>
+                <h2 id="user-modal-title" style="font-size: 22px; font-weight: 700; color: var(--text-dark);">Ajouter un Utilisateur</h2>
+            </div>
+            <div id="user-modal-body"></div>
         </div>
     </div>
 

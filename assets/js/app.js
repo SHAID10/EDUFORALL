@@ -105,6 +105,12 @@ const App = {
             case 'overview':
                 this.loadPromoterOverview();
                 break;
+            case 'users':
+                this.loadUsersList();
+                break;
+            case 'user-details':
+                // Data loaded by viewUserDetails
+                break;
             case 'profile':
                 this.loadUserProfile();
                 break;
@@ -568,59 +574,104 @@ const App = {
 
     renderLessonResource: function(lesson) {
         const sidebar = document.getElementById('course-details-sidebar');
+        const isStudent = this.user.role === 'student';
+        const alreadyCompleted = lesson.completed;
+
+        // For students who haven't completed: they must consume the content fully
+        const needsTracking = isStudent && !alreadyCompleted;
 
         let resourceViewerHtml = '';
+        let trackingBarHtml = '';
+
         if (lesson.content_type === 'pdf') {
             resourceViewerHtml = `
-                <div style="background: #F8FAFC; border: 1px solid var(--border-color); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
-                    <div style="width: 60px; height: 60px; border-radius: 14px; background: var(--danger-light); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px;">
-                        <i class="fas fa-file-pdf" style="font-size: 28px; color: var(--danger);"></i>
+                <div style="margin-bottom: 16px;">
+                    <div class="pdf-viewer-wrapper" id="pdf-viewer-${lesson.id}">
+                        <iframe src="${lesson.content_path}#toolbar=1&view=FitH" class="pdf-viewer-frame" title="Document PDF"></iframe>
+                        ${needsTracking ? `<div class="pdf-scroll-tracker" id="pdf-tracker-${lesson.id}" onscroll="App.onPdfScroll(${lesson.id})"></div>` : ''}
                     </div>
-                    <h4 style="margin: 10px 0;">Document PDF</h4>
-                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px; word-break: break-all;">${lesson.content_path}</p>
-                    <a href="${lesson.content_path}" target="_blank" class="btn btn-primary btn-sm">
-                        <i class="fas fa-download"></i> Telecharger / Ouvrir le PDF
-                    </a>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                        <p style="font-size: 11px; color: var(--text-muted); word-break: break-all;">
+                            <i class="fas fa-file-pdf" style="color: var(--danger);"></i> Document PDF
+                        </p>
+                        <a href="${lesson.content_path}" target="_blank" class="btn btn-outline btn-sm">
+                            <i class="fas fa-external-link-alt"></i> Plein ecran
+                        </a>
+                    </div>
                 </div>
             `;
         } else if (lesson.content_type === 'video') {
             resourceViewerHtml = `
-                <div style="margin-bottom: 20px;">
+                <div style="margin-bottom: 16px;">
                     <div style="position: relative; border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); background: #000;">
-                        <video controls style="width: 100%; display: block; max-height: 360px; background: #000;">
+                        <video id="video-player-${lesson.id}" controls ${needsTracking ? 'controlsList="nodownload"' : ''} style="width: 100%; display: block; max-height: 360px; background: #000;">
                             <source src="${lesson.content_path}" type="video/mp4">
                             Votre navigateur ne supporte pas la lecture de videos HTML5.
                         </video>
                     </div>
-                    <p style="font-size: 11px; color: var(--text-muted); margin-top: 5px; word-break: break-all;">
-                        <i class="fas fa-video"></i> Source: ${lesson.content_path}
-                    </p>
                 </div>
             `;
         } else {
-            resourceViewerHtml = `
-                <div style="background: #F8FAFC; border: 1px solid var(--border-color); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
-                    <div style="width: 60px; height: 60px; border-radius: 14px; background: var(--primary-blue-light); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px;">
-                        <i class="fas fa-link" style="font-size: 28px; color: var(--primary-blue);"></i>
+            // Link - check if YouTube
+            const ytId = this.extractYouTubeId(lesson.content_path);
+            if (ytId) {
+                resourceViewerHtml = `
+                    <div style="margin-bottom: 16px;">
+                        <div style="position: relative; border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); background: #000; aspect-ratio: 16/9;">
+                            <div id="yt-player-${lesson.id}" style="width: 100%; height: 100%;"></div>
+                        </div>
+                        <p style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
+                            <i class="fab fa-youtube" style="color: #FF0000;"></i> Video YouTube integree
+                        </p>
                     </div>
-                    <h4 style="margin: 10px 0;">Ressource Externe</h4>
-                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px; word-break: break-all;">${lesson.content_path}</p>
-                    <a href="${lesson.content_path}" target="_blank" class="btn btn-primary btn-sm">
-                        <i class="fas fa-external-link-alt"></i> Visiter le lien
-                    </a>
-                </div>
-            `;
+                `;
+            } else {
+                resourceViewerHtml = `
+                    <div style="background: #F8FAFC; border: 1px solid var(--border-color); padding: 20px; border-radius: 8px; margin-bottom: 16px; text-align: center;">
+                        <div style="width: 60px; height: 60px; border-radius: 14px; background: var(--primary-blue-light); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px;">
+                            <i class="fas fa-link" style="font-size: 28px; color: var(--primary-blue);"></i>
+                        </div>
+                        <h4 style="margin: 10px 0;">Ressource Externe</h4>
+                        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px; word-break: break-all;">${lesson.content_path}</p>
+                        <a href="${lesson.content_path}" target="_blank" class="btn btn-primary btn-sm" onclick="App.markExternalLinkVisited(${lesson.id})">
+                            <i class="fas fa-external-link-alt"></i> Visiter le lien
+                        </a>
+                    </div>
+                `;
+            }
         }
 
-        if (this.user.role === 'student' && !lesson.completed) {
-            const formData = new FormData();
-            formData.append('lesson_id', lesson.id);
-            fetch('api.php?action=complete_lesson', {
-                method: 'POST',
-                body: formData
-            }).then(() => {
-                this.loadCourseDetails(this.activeCourseId);
-            });
+        // Progress bar + completion button for students
+        let completionHtml = '';
+        if (isStudent) {
+            if (alreadyCompleted) {
+                completionHtml = `
+                    <div class="alert-banner alert-banner-success" style="margin-top: 10px;">
+                        <span><i class="fas fa-check-circle"></i> Vous avez termine cette lecon.</span>
+                        <span class="badge badge-success">Complete</span>
+                    </div>
+                `;
+            } else {
+                completionHtml = `
+                    <div class="completion-tracker" id="completion-tracker-${lesson.id}">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-size: 13px; font-weight: 600; color: var(--text-dark);">
+                                <i class="fas fa-eye"></i> Progression de lecture
+                            </span>
+                            <span style="font-size: 13px; font-weight: 700;" class="orange-text" id="progress-label-${lesson.id}">0%</span>
+                        </div>
+                        <div class="reading-progress-bar">
+                            <div class="reading-progress-fill" id="progress-fill-${lesson.id}" style="width: 0%;"></div>
+                        </div>
+                        <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;" id="completion-hint-${lesson.id}">
+                            <i class="fas fa-info-circle"></i> ${this.getCompletionHint(lesson.content_type)}
+                        </p>
+                        <button class="btn btn-orange" id="complete-btn-${lesson.id}" style="margin-top: 12px; width: 100%; opacity: 0.5; cursor: not-allowed;" disabled onclick="App.finishLesson(${lesson.id})">
+                            <i class="fas fa-lock"></i> J'ai termine cette lecon
+                        </button>
+                    </div>
+                `;
+            }
         }
 
         const evalHtml = Components.renderEvaluationSection(lesson, this.user.role);
@@ -630,13 +681,190 @@ const App = {
                 <h2><i class="fas fa-book"></i> ${escapeHtml(lesson.title)}</h2>
                 <p style="font-size: 14px; margin-bottom: 20px; color: var(--text-dark);">${escapeHtml(lesson.description || 'Aucune description.')}</p>
                 ${resourceViewerHtml}
+                ${completionHtml}
             </div>
             ${evalHtml}
         `;
 
+        // Initialize tracking based on content type
+        if (needsTracking) {
+            if (lesson.content_type === 'video') {
+                this.setupVideoTracking(lesson.id);
+            } else if (lesson.content_type === 'link') {
+                const ytId = this.extractYouTubeId(lesson.content_path);
+                if (ytId) {
+                    this.setupYouTubeTracking(lesson.id, ytId);
+                }
+            }
+            // PDF tracking is handled via onscroll attribute
+        }
+
         if (this.user.role === 'teacher' && lesson.evaluation && lesson.evaluation.type === 'quiz') {
             this.loadQuizQuestionsForTeacher(lesson.evaluation.id);
         }
+    },
+
+    // --- LESSON COMPLETION TRACKING ---
+    lessonProgress: {},
+
+    getCompletionHint: function(contentType) {
+        if (contentType === 'pdf') {
+            return 'Faites defiler le document jusqu\'a la fin pour debloquer le bouton.';
+        } else if (contentType === 'video' || contentType === 'link') {
+            return 'Regardez la video jusqu\'a la fin pour debloquer le bouton.';
+        }
+        return 'Consultez la ressource pour debloquer le bouton.';
+    },
+
+    extractYouTubeId: function(url) {
+        if (!url) return null;
+        const patterns = [
+            /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+            /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/
+        ];
+        for (const pattern of patterns) {
+            const match = url.match(pattern);
+            if (match) return match[1];
+        }
+        return null;
+    },
+
+    updateLessonProgress: function(lessonId, percent) {
+        percent = Math.min(100, Math.round(percent));
+        this.lessonProgress[lessonId] = percent;
+
+        const fill = document.getElementById(`progress-fill-${lessonId}`);
+        const label = document.getElementById(`progress-label-${lessonId}`);
+        const btn = document.getElementById(`complete-btn-${lessonId}`);
+
+        if (fill) fill.style.width = percent + '%';
+        if (label) label.innerText = percent + '%';
+
+        // Unlock button at 95%+
+        if (percent >= 95 && btn) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            btn.innerHTML = '<i class="fas fa-check-circle"></i> J\'ai termine cette lecon';
+            const hint = document.getElementById(`completion-hint-${lessonId}`);
+            if (hint) {
+                hint.innerHTML = '<i class="fas fa-check" style="color: var(--success);"></i> Vous pouvez maintenant valider cette lecon !';
+                hint.style.color = 'var(--success)';
+            }
+        }
+    },
+
+    onPdfScroll: function(lessonId) {
+        const tracker = document.getElementById(`pdf-tracker-${lessonId}`);
+        if (!tracker) return;
+        const scrollable = tracker.scrollHeight - tracker.clientHeight;
+        if (scrollable <= 0) {
+            this.updateLessonProgress(lessonId, 100);
+            return;
+        }
+        const percent = (tracker.scrollTop / scrollable) * 100;
+        this.updateLessonProgress(lessonId, percent);
+    },
+
+    setupVideoTracking: function(lessonId) {
+        const video = document.getElementById(`video-player-${lessonId}`);
+        if (!video) return;
+
+        let maxWatched = 0;
+        video.addEventListener('timeupdate', () => {
+            if (video.duration > 0) {
+                // Track furthest point reached (prevent skipping by tracking current time vs max)
+                if (video.currentTime > maxWatched) {
+                    maxWatched = video.currentTime;
+                }
+                const percent = (maxWatched / video.duration) * 100;
+                this.updateLessonProgress(lessonId, percent);
+            }
+        });
+        video.addEventListener('ended', () => {
+            this.updateLessonProgress(lessonId, 100);
+        });
+    },
+
+    setupYouTubeTracking: function(lessonId, videoId) {
+        // Load YouTube IFrame API if not already loaded
+        const initPlayer = () => {
+            const player = new YT.Player(`yt-player-${lessonId}`, {
+                videoId: videoId,
+                playerVars: { 'rel': 0, 'modestbranding': 1 },
+                events: {
+                    'onReady': (event) => {
+                        // Poll progress periodically
+                        const interval = setInterval(() => {
+                            if (player && player.getCurrentTime && player.getDuration) {
+                                const current = player.getCurrentTime();
+                                const duration = player.getDuration();
+                                if (duration > 0) {
+                                    const percent = (current / duration) * 100;
+                                    this.updateLessonProgress(lessonId, percent);
+                                    if (percent >= 99) clearInterval(interval);
+                                }
+                            }
+                        }, 1000);
+                        this.ytIntervals = this.ytIntervals || {};
+                        this.ytIntervals[lessonId] = interval;
+                    },
+                    'onStateChange': (event) => {
+                        if (event.data === YT.PlayerState.ENDED) {
+                            this.updateLessonProgress(lessonId, 100);
+                        }
+                    }
+                }
+            });
+        };
+
+        if (window.YT && window.YT.Player) {
+            initPlayer();
+        } else {
+            // Load the API
+            if (!document.getElementById('youtube-iframe-api')) {
+                const tag = document.createElement('script');
+                tag.id = 'youtube-iframe-api';
+                tag.src = 'https://www.youtube.com/iframe_api';
+                document.head.appendChild(tag);
+            }
+            // Queue the player init
+            this.ytPlayerQueue = this.ytPlayerQueue || [];
+            this.ytPlayerQueue.push(initPlayer);
+            window.onYouTubeIframeAPIReady = () => {
+                (this.ytPlayerQueue || []).forEach(fn => fn());
+                this.ytPlayerQueue = [];
+            };
+        }
+    },
+
+    markExternalLinkVisited: function(lessonId) {
+        // For non-embeddable external links, visiting counts as completion progress
+        this.updateLessonProgress(lessonId, 100);
+    },
+
+    finishLesson: function(lessonId) {
+        const percent = this.lessonProgress[lessonId] || 0;
+        if (percent < 95) {
+            alert('Vous devez consulter la totalite du contenu avant de terminer la lecon.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('lesson_id', lessonId);
+        fetch('api.php?action=complete_lesson', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert('Felicitations ! Vous avez termine cette lecon.');
+                this.loadCourseDetails(this.activeCourseId);
+            } else {
+                alert(data.message);
+            }
+        });
     },
 
     createCourse: function(e) {
@@ -1276,6 +1504,195 @@ const App = {
                     wrapper.innerHTML = '<p style="color: var(--text-muted);">Aucune donnee disponible pour le moment.</p>';
                 }
             });
+    },
+
+    // --- USER MANAGEMENT (Promoter) ---
+    loadUsersList: function() {
+        const wrapper = document.getElementById('users-list-wrapper');
+        const countSpan = document.getElementById('users-total-count');
+        wrapper.innerHTML = '<p style="padding: 20px;">Chargement des utilisateurs...</p>';
+
+        const search = document.getElementById('users-search-input') ? document.getElementById('users-search-input').value : '';
+        const roleFilter = document.getElementById('users-role-filter') ? document.getElementById('users-role-filter').value : '';
+
+        let url = 'api.php?action=get_users';
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (roleFilter) url += `&role=${encodeURIComponent(roleFilter)}`;
+
+        fetch(url)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.users.length > 0) {
+                    let html = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="padding: 12px 16px;">Utilisateur</th>
+                                    <th style="padding: 12px 16px;">Courriel</th>
+                                    <th style="padding: 12px 16px;">Role</th>
+                                    <th style="padding: 12px 16px;">Membre depuis</th>
+                                    <th style="padding: 12px 16px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                    data.users.forEach(u => {
+                        html += Components.renderUserRow(u);
+                    });
+                    html += '</tbody></table>';
+                    wrapper.innerHTML = html;
+                    if (countSpan) countSpan.innerText = data.users.length;
+                } else {
+                    wrapper.innerHTML = '<p style="color: var(--text-muted); padding: 40px; text-align: center;">Aucun utilisateur trouve.</p>';
+                    if (countSpan) countSpan.innerText = 0;
+                }
+            })
+            .catch(err => {
+                wrapper.innerHTML = '<p class="orange-text">Erreur de chargement des utilisateurs.</p>';
+            });
+    },
+
+    openAddUserModal: function() {
+        const modal = document.getElementById('user-modal');
+        const title = document.getElementById('user-modal-title');
+        const body = document.getElementById('user-modal-body');
+        
+        title.innerText = 'Ajouter un Utilisateur';
+        body.innerHTML = Components.renderUserForm(null);
+        modal.style.display = 'flex';
+    },
+
+    openEditUserModal: function(userId) {
+        const modal = document.getElementById('user-modal');
+        const title = document.getElementById('user-modal-title');
+        const body = document.getElementById('user-modal-body');
+        
+        title.innerText = 'Chargement...';
+        body.innerHTML = '<p style="padding: 20px; text-align: center;">Chargement des informations...</p>';
+        modal.style.display = 'flex';
+
+        fetch(`api.php?action=get_user_details&user_id=${userId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    title.innerText = 'Modifier l\'utilisateur';
+                    body.innerHTML = Components.renderUserForm(data.user);
+                } else {
+                    alert(data.message);
+                    modal.style.display = 'none';
+                }
+            })
+            .catch(err => {
+                alert('Erreur de chargement.');
+                modal.style.display = 'none';
+            });
+    },
+
+    closeUserModal: function() {
+        document.getElementById('user-modal').style.display = 'none';
+    },
+
+    submitUserForm: function(e, userId) {
+        e.preventDefault();
+        const form = e.target;
+        const formData = new FormData(form);
+
+        const isEdit = userId !== null && userId !== undefined && userId !== 'null';
+        const action = isEdit ? 'update_user' : 'add_user';
+
+        if (isEdit) {
+            // For update, send as JSON
+            const data = {
+                user_id: userId,
+                name: formData.get('name'),
+                email: formData.get('email'),
+                role: formData.get('role'),
+                password: formData.get('password') || ''
+            };
+
+            fetch('api.php?action=update_user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    this.closeUserModal();
+                    this.loadUsersList();
+                } else {
+                    alert(data.message);
+                }
+            });
+        } else {
+            fetch('api.php?action=add_user', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    this.closeUserModal();
+                    this.loadUsersList();
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+    },
+
+    deleteUser: function(userId, userName) {
+        if (!confirm(`Voulez-vous vraiment supprimer l'utilisateur "${userName}" ?\n\nCette action est irreversible. Toutes les donnees liees (cours, soumissions, etc.) seront egalement supprimees.`)) {
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('user_id', userId);
+
+        fetch('api.php?action=delete_user', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.message);
+                this.loadUsersList();
+                // If we were viewing details, go back to list
+                if (this.activeTab === 'user-details') {
+                    this.switchTab('users');
+                }
+            } else {
+                alert(data.message);
+            }
+        });
+    },
+
+    viewUserDetails: function(userId) {
+        this.activeUserId = userId;
+        this.switchTab('user-details');
+        
+        const container = document.getElementById('user-details-container');
+        container.innerHTML = '<p style="padding: 20px;">Chargement des details...</p>';
+
+        fetch(`api.php?action=get_user_details&user_id=${userId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    container.innerHTML = Components.renderUserDetails(data.user);
+                } else {
+                    container.innerHTML = `<div class="alert-banner alert-banner-danger">${data.message}</div>`;
+                }
+            })
+            .catch(err => {
+                container.innerHTML = '<p class="orange-text">Erreur de chargement.</p>';
+            });
+    },
+
+    filterUsers: function() {
+        this.loadUsersList();
     },
 
     loadUserProfile: function() {

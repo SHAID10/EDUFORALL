@@ -923,8 +923,255 @@ try {
             break;
 
         case 'get_all_users':
-            $stmt = $conn->query("SELECT id, name, email, role FROM users ORDER BY name ASC");
+            $stmt = $conn->query("SELECT id, name, email, role, created_at FROM users ORDER BY name ASC");
             echo json_encode(['success' => true, 'users' => $stmt->fetchAll()]);
+            break;
+
+        // --- USER MANAGEMENT (Promoter/Admin only) ---
+        case 'get_users':
+            if ($userRole !== 'promoter') {
+                echo json_encode(['success' => false, 'message' => 'Réservé aux promoteurs.']);
+                exit;
+            }
+            
+            $search = $_GET['search'] ?? '';
+            $roleFilter = $_GET['role'] ?? '';
+            
+            $query = "SELECT id, name, email, role, created_at FROM users WHERE 1=1";
+            $params = [];
+            
+            if (!empty($search)) {
+                $query .= " AND (name LIKE ? OR email LIKE ?)";
+                $params[] = "%$search%";
+                $params[] = "%$search%";
+            }
+            
+            if (!empty($roleFilter) && in_array($roleFilter, ['student', 'teacher', 'promoter'])) {
+                $query .= " AND role = ?";
+                $params[] = $roleFilter;
+            }
+            
+            $query .= " ORDER BY created_at DESC";
+            
+            $stmt = $conn->prepare($query);
+            $stmt->execute($params);
+            $users = $stmt->fetchAll();
+            
+            // Get counts for each user (courses for teachers, submissions for students)
+            foreach ($users as &$u) {
+                if ($u['role'] === 'teacher') {
+                    $cStmt = $conn->prepare("SELECT COUNT(*) FROM courses WHERE teacher_id = ?");
+                    $cStmt->execute([$u['id']]);
+                    $u['courses_count'] = (int)$cStmt->fetchColumn();
+                } elseif ($u['role'] === 'student') {
+                    $sStmt = $conn->prepare("SELECT COUNT(*) FROM submissions WHERE student_id = ?");
+                    $sStmt->execute([$u['id']]);
+                    $u['submissions_count'] = (int)$sStmt->fetchColumn();
+                    
+                    $gStmt = $conn->prepare("SELECT AVG(score) FROM submissions WHERE student_id = ? AND status = 'graded'");
+                    $gStmt->execute([$u['id']]);
+                    $u['avg_grade'] = $gStmt->fetchColumn();
+                    $u['avg_grade'] = $u['avg_grade'] !== null ? round((float)$u['avg_grade'], 2) : null;
+                }
+            }
+            
+            echo json_encode(['success' => true, 'users' => $users]);
+            break;
+
+        case 'get_user_details':
+            if ($userRole !== 'promoter') {
+                echo json_encode(['success' => false, 'message' => 'Réservé aux promoteurs.']);
+                exit;
+            }
+            
+            $targetId = (int)($_GET['user_id'] ?? 0);
+            if ($targetId <= 0) {
+                echo json_encode(['success' => false, 'message' => 'ID utilisateur invalide.']);
+                exit;
+            }
+            
+            $stmt = $conn->prepare("SELECT id, name, email, role, created_at FROM users WHERE id = ?");
+            $stmt->execute([$targetId]);
+            $user = $stmt->fetch();
+            
+            if (!$user) {
+                echo json_encode(['success' => false, 'message' => 'Utilisateur introuvable.']);
+                exit;
+            }
+            
+            // Get additional stats
+            if ($user['role'] === 'teacher') {
+                $cStmt = $conn->prepare("SELECT COUNT(*) FROM courses WHERE teacher_id = ?");
+                $cStmt->execute([$targetId]);
+                $user['courses_count'] = (int)$cStmt->fetchColumn();
+                
+                $cStmt2 = $conn->prepare("SELECT id, title, subject_id, created_at FROM courses WHERE teacher_id = ? ORDER BY created_at DESC");
+                $cStmt2->execute([$targetId]);
+                $user['courses_list'] = $cStmt2->fetchAll();
+            } elseif ($user['role'] === 'student') {
+                $sStmt = $conn->prepare("SELECT COUNT(*) FROM submissions WHERE student_id = ?");
+                $sStmt->execute([$targetId]);
+                $user['submissions_count'] = (int)$sStmt->fetchColumn();
+                
+                $gStmt = $conn->prepare("SELECT AVG(score) FROM submissions WHERE student_id = ? AND status = 'graded'");
+                $gStmt->execute([$targetId]);
+                $user['avg_grade'] = $gStmt->fetchColumn();
+                $user['avg_grade'] = $user['avg_grade'] !== null ? round((float)$user['avg_grade'], 2) : null;
+                
+                $cStmt = $conn->prepare("SELECT COUNT(*) FROM certificates WHERE student_id = ?");
+                $cStmt->execute([$targetId]);
+                $user['certificates_count'] = (int)$cStmt->fetchColumn();
+                
+                $pStmt = $conn->prepare("SELECT COUNT(*) FROM student_progress WHERE student_id = ?");
+                $pStmt->execute([$targetId]);
+                $user['completed_lessons'] = (int)$pStmt->fetchColumn();
+            }
+            
+            echo json_encode(['success' => true, 'user' => $user]);
+            break;
+
+        case 'add_user':
+            if ($userRole !== 'promoter') {
+                echo json_encode(['success' => false, 'message' => 'Réservé aux promoteurs.']);
+                exit;
+            }
+            
+            $name = trim($_POST['name'] ?? '');
+            $email = trim($_POST['email'] ?? '');
+            $password = $_POST['password'] ?? '';
+            $role = $_POST['role'] ?? 'student';
+            
+            if (empty($name) || empty($email) || empty($password) || empty($role)) {
+                echo json_encode(['success' => false, 'message' => 'Veuillez remplir tous les champs obligatoires.']);
+                exit;
+            }
+            
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                echo json_encode(['success' => false, 'message' => 'Format de courriel invalide.']);
+                exit;
+            }
+            
+            if (!in_array($role, ['student', 'teacher', 'promoter'])) {
+                echo json_encode(['success' => false, 'message' => 'Rôle utilisateur invalide.']);
+                exit;
+            }
+            
+            if (strlen($password) < 6) {
+                echo json_encode(['success' => false, 'message' => 'Le mot de passe doit contenir au moins 6 caractères.']);
+                exit;
+            }
+            
+            // Check duplicate email
+            $chk = $conn->prepare("SELECT id FROM users WHERE email = ?");
+            $chk->execute([$email]);
+            if ($chk->fetch()) {
+                echo json_encode(['success' => false, 'message' => 'Cette adresse courriel est déjà utilisée.']);
+                exit;
+            }
+            
+            $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+            $stmt = $conn->prepare("INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)");
+            $stmt->execute([$name, $email, $hashedPassword, $role]);
+            
+            echo json_encode([
+                'success' => true, 
+                'message' => 'Utilisateur créé avec succès.',
+                'user_id' => $conn->lastInsertId()
+            ]);
+            break;
+
+        case 'update_user':
+            if ($userRole !== 'promoter') {
+                echo json_encode(['success' => false, 'message' => 'Réservé aux promoteurs.']);
+                exit;
+            }
+            
+            $data = json_decode(file_get_contents('php://input'), true);
+            if (empty($data)) {
+                $data = $_POST;
+            }
+            
+            $targetId = (int)($data['user_id'] ?? 0);
+            $name = trim($data['name'] ?? '');
+            $email = trim($data['email'] ?? '');
+            $role = $data['role'] ?? '';
+            $password = $data['password'] ?? '';
+            
+            if ($targetId <= 0 || empty($name) || empty($email) || empty($role)) {
+                echo json_encode(['success' => false, 'message' => 'Données invalides.']);
+                exit;
+            }
+            
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                echo json_encode(['success' => false, 'message' => 'Format de courriel invalide.']);
+                exit;
+            }
+            
+            if (!in_array($role, ['student', 'teacher', 'promoter'])) {
+                echo json_encode(['success' => false, 'message' => 'Rôle utilisateur invalide.']);
+                exit;
+            }
+            
+            // Check duplicate email (exclude current user)
+            $chk = $conn->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
+            $chk->execute([$email, $targetId]);
+            if ($chk->fetch()) {
+                echo json_encode(['success' => false, 'message' => 'Cette adresse courriel est déjà utilisée par un autre compte.']);
+                exit;
+            }
+            
+            if (!empty($password)) {
+                if (strlen($password) < 6) {
+                    echo json_encode(['success' => false, 'message' => 'Le mot de passe doit contenir au moins 6 caractères.']);
+                    exit;
+                }
+                $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+                $stmt = $conn->prepare("UPDATE users SET name = ?, email = ?, role = ?, password = ? WHERE id = ?");
+                $stmt->execute([$name, $email, $role, $hashedPassword, $targetId]);
+            } else {
+                $stmt = $conn->prepare("UPDATE users SET name = ?, email = ?, role = ? WHERE id = ?");
+                $stmt->execute([$name, $email, $role, $targetId]);
+            }
+            
+            echo json_encode(['success' => true, 'message' => 'Utilisateur mis à jour avec succès.']);
+            break;
+
+        case 'delete_user':
+            if ($userRole !== 'promoter') {
+                echo json_encode(['success' => false, 'message' => 'Réservé aux promoteurs.']);
+                exit;
+            }
+            
+            $targetId = (int)($_POST['user_id'] ?? 0);
+            if ($targetId <= 0) {
+                echo json_encode(['success' => false, 'message' => 'ID utilisateur invalide.']);
+                exit;
+            }
+            
+            // Prevent deleting yourself
+            if ($targetId === $userId) {
+                echo json_encode(['success' => false, 'message' => 'Vous ne pouvez pas supprimer votre propre compte.']);
+                exit;
+            }
+            
+            // Check if user exists
+            $chk = $conn->prepare("SELECT id, name, role FROM users WHERE id = ?");
+            $chk->execute([$targetId]);
+            $userToDelete = $chk->fetch();
+            
+            if (!$userToDelete) {
+                echo json_encode(['success' => false, 'message' => 'Utilisateur introuvable.']);
+                exit;
+            }
+            
+            // Delete user (cascading will handle related data)
+            $stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
+            $stmt->execute([$targetId]);
+            
+            echo json_encode([
+                'success' => true, 
+                'message' => 'Utilisateur "' . $userToDelete['name'] . '" supprimé avec succès.'
+            ]);
             break;
 
         case 'get_calendar_events':

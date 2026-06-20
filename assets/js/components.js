@@ -353,6 +353,173 @@ const Components = {
         `;
     },
 
+    renderUserRow: function(user) {
+        const roleBadge = user.role === 'student' ? 'badge-blue' : user.role === 'teacher' ? 'badge-success' : 'badge-warning';
+        const roleLabel = user.role === 'student' ? 'Etudiant' : user.role === 'teacher' ? 'Enseignant' : 'Promoteur';
+        
+        let statsHtml = '';
+        if (user.role === 'teacher' && user.courses_count !== undefined) {
+            statsHtml = `<span style="font-size: 11px; color: var(--text-muted);">${user.courses_count} cours</span>`;
+        } else if (user.role === 'student') {
+            statsHtml = `<span style="font-size: 11px; color: var(--text-muted);">${user.submissions_count || 0} soumissions${user.avg_grade ? ' | Moy: ' + user.avg_grade + '/20' : ''}</span>`;
+        }
+
+        return `
+            <tr>
+                <td style="padding: 12px 16px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div class="user-avatar-wrap" style="width: 36px; height: 36px; font-size: 14px; min-width: 36px;">
+                            ${user.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                            <strong style="font-size: 14px;">${escapeHtml(user.name)}</strong>
+                            <br>${statsHtml}
+                        </div>
+                    </div>
+                </td>
+                <td style="padding: 12px 16px; font-size: 13px; color: var(--text-muted);">${escapeHtml(user.email)}</td>
+                <td style="padding: 12px 16px;"><span class="badge ${roleBadge}">${roleLabel}</span></td>
+                <td style="padding: 12px 16px; font-size: 12px; color: var(--text-muted);">${formatDate(user.created_at)}</td>
+                <td style="padding: 12px 16px;">
+                    <div style="display: flex; gap: 6px;">
+                        <button class="btn btn-outline btn-sm" onclick="App.viewUserDetails(${user.id})" title="Voir details">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button class="btn btn-primary btn-sm" onclick="App.openEditUserModal(${user.id})" title="Modifier">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="App.deleteUser(${user.id}, '${escapeHtml(user.name)}')" title="Supprimer">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    },
+
+    renderUserForm: function(user) {
+        const isEdit = !!user;
+        const name = user ? escapeHtml(user.name) : '';
+        const email = user ? escapeHtml(user.email) : '';
+        const role = user ? user.role : 'student';
+        
+        return `
+            <form id="user-form" onsubmit="App.submitUserForm(event, ${isEdit ? user.id : 'null'})">
+                <div class="form-group">
+                    <label><i class="fas fa-user" style="margin-right: 6px; color: var(--text-muted);"></i> Nom complet</label>
+                    <input type="text" name="name" class="form-control" placeholder="Jean Dupont" value="${name}" required>
+                </div>
+                <div class="form-group">
+                    <label><i class="fas fa-envelope" style="margin-right: 6px; color: var(--text-muted);"></i> Adresse Courriel</label>
+                    <input type="email" name="email" class="form-control" placeholder="nom@exemple.com" value="${email}" required>
+                </div>
+                <div class="form-group">
+                    <label><i class="fas fa-lock" style="margin-right: 6px; color: var(--text-muted);"></i> Mot de passe ${isEdit ? '(laisser vide pour ne pas changer)' : ''}</label>
+                    <input type="password" name="password" class="form-control" placeholder="${isEdit ? 'Nouveau mot de passe...' : 'Minimum 6 caracteres'}" ${isEdit ? '' : 'required'}>
+                </div>
+                <div class="form-group">
+                    <label><i class="fas fa-user-tag" style="margin-right: 6px; color: var(--text-muted);"></i> Role</label>
+                    <select name="role" class="form-control" required>
+                        <option value="student" ${role === 'student' ? 'selected' : ''}>Etudiant(e)</option>
+                        <option value="teacher" ${role === 'teacher' ? 'selected' : ''}>Enseignant(e)</option>
+                        <option value="promoter" ${role === 'promoter' ? 'selected' : ''}>Promoteur / Administrateur</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-orange" style="width: 100%; margin-top: 8px;">
+                    <i class="fas fa-${isEdit ? 'save' : 'user-plus'}"></i> ${isEdit ? 'Enregistrer les modifications' : 'Creer l\'utilisateur'}
+                </button>
+            </form>
+        `;
+    },
+
+    renderUserDetails: function(user) {
+        const roleLabel = user.role === 'student' ? 'Etudiant' : user.role === 'teacher' ? 'Enseignant' : 'Promoteur';
+        const roleBadge = user.role === 'student' ? 'badge-blue' : user.role === 'teacher' ? 'badge-success' : 'badge-warning';
+        
+        let extraStatsHtml = '';
+        
+        if (user.role === 'teacher') {
+            let coursesHtml = '';
+            if (user.courses_list && user.courses_list.length > 0) {
+                coursesHtml = '<ul style="list-style: none; margin-top: 10px;">';
+                user.courses_list.forEach(c => {
+                    coursesHtml += `
+                        <li style="padding: 8px 12px; background: var(--bg-white); border-radius: 6px; margin-bottom: 6px; border: 1px solid var(--border-color); font-size: 13px;">
+                            <strong>${escapeHtml(c.title)}</strong>
+                            <span style="color: var(--text-muted);"> (${c.subject_id})</span>
+                            <br><span style="font-size: 11px; color: var(--text-muted);">Cree le ${formatDate(c.created_at)}</span>
+                        </li>
+                    `;
+                });
+                coursesHtml += '</ul>';
+            } else {
+                coursesHtml = '<p style="color: var(--text-muted); font-size: 13px;">Aucun cours cree.</p>';
+            }
+            
+            extraStatsHtml = `
+                <div style="margin-top: 20px; padding: 16px; background: var(--bg-light); border-radius: 8px;">
+                    <h4 style="margin-bottom: 10px;"><i class="fas fa-chalkboard-teacher"></i> Cours crees (${user.courses_count || 0})</h4>
+                    ${coursesHtml}
+                </div>
+            `;
+        } else if (user.role === 'student') {
+            extraStatsHtml = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px;">
+                    <div style="padding: 16px; background: var(--bg-light); border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: var(--primary-blue);">${user.submissions_count || 0}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">Soumissions</div>
+                    </div>
+                    <div style="padding: 16px; background: var(--bg-light); border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: var(--accent-orange);">${user.avg_grade !== null ? user.avg_grade + '/20' : 'N/A'}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">Moyenne Generale</div>
+                    </div>
+                    <div style="padding: 16px; background: var(--bg-light); border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: var(--success);">${user.certificates_count || 0}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">Certificats</div>
+                    </div>
+                    <div style="padding: 16px; background: var(--bg-light); border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: var(--primary-blue);">${user.completed_lessons || 0}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">Lecons completes</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        return `
+            <div style="text-align: center; padding: 20px;">
+                <div class="user-avatar-wrap" style="width: 80px; height: 80px; font-size: 32px; margin: 0 auto 20px auto;">
+                    ${user.name.charAt(0).toUpperCase()}
+                </div>
+                <h2>${escapeHtml(user.name)}</h2>
+                <p style="color: var(--text-muted); margin-bottom: 5px; font-size: 15px;">
+                    <i class="fas fa-envelope"></i> ${escapeHtml(user.email)}
+                </p>
+                <p style="margin-bottom: 20px;">
+                    <span class="badge ${roleBadge}" style="font-size: 13px; padding: 6px 16px;">${roleLabel}</span>
+                </p>
+                <div style="max-width: 500px; margin: 0 auto; text-align: left;">
+                    <div style="padding: 12px; background: var(--bg-light); border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between;">
+                        <span style="color: var(--text-muted);">ID Utilisateur</span>
+                        <strong>#${user.id}</strong>
+                    </div>
+                    <div style="padding: 12px; background: var(--bg-light); border-radius: 8px; display: flex; justify-content: space-between;">
+                        <span style="color: var(--text-muted);">Membre depuis</span>
+                        <strong>${formatDate(user.created_at)}</strong>
+                    </div>
+                    ${extraStatsHtml}
+                </div>
+                <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
+                    <button class="btn btn-primary" onclick="App.openEditUserModal(${user.id})">
+                        <i class="fas fa-edit"></i> Modifier
+                    </button>
+                    <button class="btn btn-danger" onclick="App.deleteUser(${user.id}, '${escapeHtml(user.name)}')">
+                        <i class="fas fa-trash"></i> Supprimer
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
     renderCertificatePreview: function(cert, moduleName, studentName) {
         return `
             <div class="certificate-preview-box">
